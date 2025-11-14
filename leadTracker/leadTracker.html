@@ -1,0 +1,68 @@
+<template>
+    <div class="slds-p-around_medium slds-grid slds-wrap">
+        <header class="slds-col slds-size_1-of-1 slds-text-align_center slds-m-bottom_large">
+            <h1 class="slds-text-heading_large slds-text-color_success">Sales Lead Tracker</h1>
+            <p class="slds-text-body_small slds-text-color_weak">Manage your sales pipeline in real-time within Salesforce.</p>
+        </header>
+
+        <div class="slds-grid slds-wrap slds-gutters_medium slds-col slds-size_1-of-1">
+            
+            <div class="slds-col slds-size_1-of-1 slds-large-size_4-of-12">
+                <lightning-card title="Add New Lead" icon-name="utility:add">
+                    <div class="slds-p-horizontal_small">
+                        <lightning-input label="Client Name" name="name" onchange={handleInputChange} required></lightning-input>
+                        <lightning-input label="Contact Email" name="email" type="email" onchange={handleInputChange} required></lightning-input>
+                        
+                        <div class="slds-grid slds-gutters_small">
+                            <div class="slds-col slds-size_1-of-2">
+                                <lightning-input label="Deal Value ($)" name="value" type="number" step="100" min="100" onchange={handleInputChange} required></lightning-input>
+                            </div>
+                            <div class="slds-col slds-size_1-of-2">
+                                <lightning-combobox
+                                    label="Status"
+                                    name="status"
+                                    value={newLead.status}
+                                    options={statusOptions}
+                                    onchange={handleInputChange}
+                                    required>
+                                </lightning-combobox>
+                            </div>
+                        </div>
+
+                        <lightning-button 
+                            label={buttonLabel} 
+                            variant="brand" 
+                            onclick={handleAddLead} 
+                            disabled={isAdding} 
+                            class="slds-m-top_medium slds-size_1-of-1">
+                        </lightning-button>
+                    </div>
+                </lightning-card>
+            </div>
+
+            <div class="slds-col slds-size_1-of-1 slds-large-size_8-of-12">
+                <lightning-card title="Pipeline" icon-name="utility:list">
+                    <div class="slds-p-horizontal_small">
+                        <template if:true={leads.data}>
+                            <lightning-datatable
+                                key-field="Id"
+                                data={leads.data}
+                                columns={columns}
+                                onrowaction={handleRowAction}
+                                hide-checkbox-column>
+                            </lightning-datatable>
+                        </template>
+                        <template if:true={leads.error}>
+                            <div class="slds-text-color_error slds-p-vertical_small">Error loading leads: {leads.error}</div>
+                        </template>
+                        <template if:false={leads.data}>
+                            <div class="slds-align_absolute-center slds-p-vertical_large">
+                                <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+                            </div>
+                        </template>
+                    </div>
+                </lightning-card>
+            </div>
+        </div>
+    </div>
+</template>
