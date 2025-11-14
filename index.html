@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Lead Tracker</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Inter Font -->
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        /* Custom scrollbar for better look */
+        .custom-scrollbar::-webkit-scrollbar { width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #9ca3af; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background-color: #f3f4f6; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen p-4 sm:p-8">
+
+    <div id="app" class="max-w-6xl mx-auto">
+        <!-- Header and User Info -->
+        <header class="text-center mb-10">
+            <h1 class="text-4xl font-extrabold text-blue-800 tracking-tight">Sales Lead Tracker</h1>
+            <p class="text-gray-500 mt-2">Manage your sales pipeline in real-time. Data is public for easy team collaboration.</p>
+            <div id="userIdDisplay" class="mt-3 text-xs text-gray-700 p-2 bg-blue-100 rounded-lg shadow-inner inline-block">
+                Connecting...
+            </div>
+        </header>
+
+        <main class="grid lg:grid-cols-3 gap-8">
+            <!-- 1. Add New Lead Card -->
+            <div class="lg:col-span-1 bg-white p-6 rounded-xl shadow-2xl h-fit sticky top-8 border border-blue-200">
+                <h2 class="text-xl font-semibold mb-5 text-blue-700 border-b pb-2">Add New Lead</h2>
+                <form id="leadForm">
+                    <div class="space-y-4">
+                        <input type="text" id="leadName" placeholder="Client Name (e.g., Acme Corp)" required
+                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                        <input type="email" id="leadEmail" placeholder="Contact Email" required
+                               class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                        <div class="flex space-x-3">
+                            <input type="number" id="leadValue" placeholder="Deal Value ($)" required min="100"
+                                   class="w-full p-3 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                            <select id="leadStatus" required
+                                    class="w-full p-3 border border-gray-300 bg-white rounded-lg focus:ring-blue-500 focus:border-blue-500 transition duration-150">
+                                <option value="New">New Lead</option>
+                                <option value="Contacted">Contacted</option>
+                                <option value="Qualified">Qualified</option>
+                                <option value="ClosedWon">Closed (Won)</option>
+                                <option value="ClosedLost">Closed (Lost)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button type="submit" id="submitButton"
+                            class="mt-6 w-full py-3 bg-blue-600 text-white font-bold rounded-lg hover:bg-blue-700 transition duration-200 shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-blue-300">
+                        Add Lead
+                    </button>
+                    <p id="messageBox" class="text-sm mt-3 text-center text-red-500"></p>
+                </form>
+            </div>
+
+            <!-- 2. Lead List Display -->
+            <div class="lg:col-span-2 bg-white p-6 rounded-xl shadow-2xl border border-gray-200">
+                <h2 class="text-xl font-semibold mb-5 text-gray-700 border-b pb-2">Pipeline</h2>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Value</th>
+                                <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="leadsTableBody" class="bg-white divide-y divide-gray-100">
+                            <!-- Leads will be injected here -->
+                            <tr>
+                                <td colspan="4" class="py-4 text-center text-gray-500" id="loadingMessage">Loading leads...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Firebase SDK Scripts -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, addDoc, onSnapshot, doc, updateDoc, deleteDoc, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Global Firebase and App variables
+        let db;
+        let auth;
+        let userId = 'default-user';
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        const leadsCollectionPath = `artifacts/${appId}/public/data/leads`;
+
+        // Utility function to get status badge styling
+        const getStatusBadge = (status) => {
+            const baseClasses = "px-2 inline-flex text-xs leading-5 font-semibold rounded-full";
+            switch (status) {
+                case 'New':
+                    return `${baseClasses} bg-blue-100 text-blue-800`;
+                case 'Contacted':
+                    return `${baseClasses} bg-yellow-100 text-yellow-800`;
+                case 'Qualified':
+                    return `${baseClasses} bg-purple-100 text-purple-800`;
+                case 'ClosedWon':
+                    return `${baseClasses} bg-green-100 text-green-800`;
+                case 'ClosedLost':
+                    return `${baseClasses} bg-red-100 text-red-800`;
+                default:
+                    return `${baseClasses} bg-gray-100 text-gray-800`;
+            }
+        };
+
+        // Utility for formatting currency
+        const formatCurrency = (value) => {
+            return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+        };
+
+        // --- 1. FIREBASE INITIALIZATION AND AUTHENTICATION ---
+
+        const initializeFirebase = async () => {
+            try {
+                if (firebaseConfig) {
+                    const app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+                    setLogLevel('debug'); // Enable debug logging
+
+                    if (initialAuthToken) {
+                        await signInWithCustomToken(auth, initialAuthToken);
+                        console.log("Signed in with custom token.");
+                    } else {
+                        await signInAnonymously(auth);
+                        console.log("Signed in anonymously.");
+                    }
+
+                    onAuthStateChanged(auth, (user) => {
+                        if (user) {
+                            userId = user.uid;
+                        } else {
+                            // Fallback user ID if somehow auth failed but app continues
+                            userId = crypto.randomUUID();
+                        }
+                        document.getElementById('userIdDisplay').textContent = `User ID: ${userId}`;
+                        setupRealtimeListener(); // Start listening for data after auth
+                    });
+                } else {
+                    document.getElementById('userIdDisplay').textContent = 'Error: Firebase Config Missing';
+                    console.error("Firebase config is missing.");
+                }
+
+            } catch (error) {
+                console.error("Error during Firebase initialization or sign-in:", error);
+                document.getElementById('userIdDisplay').textContent = `Auth Error: ${error.message}`;
+            }
+        };
+
+        // --- 2. DATA RENDERING AND REAL-TIME LISTENER ---
+
+        const setupRealtimeListener = () => {
+            if (!db) {
+                console.error("Firestore database is not initialized.");
+                return;
+            }
+
+            const leadsQuery = query(collection(db, leadsCollectionPath));
+            const leadsTableBody = document.getElementById('leadsTableBody');
+            const loadingMessage = document.getElementById('loadingMessage');
+
+            onSnapshot(leadsQuery, (snapshot) => {
+                let htmlContent = '';
+                let hasLeads = false;
+
+                snapshot.forEach((doc) => {
+                    hasLeads = true;
+                    const lead = doc.data();
+                    lead.id = doc.id;
+                    htmlContent += createLeadRow(lead);
+                });
+
+                if (hasLeads) {
+                    leadsTableBody.innerHTML = htmlContent;
+                } else {
+                    leadsTableBody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-gray-500">No leads found. Start by adding one above!</td></tr>`;
+                }
+                
+                if (loadingMessage) {
+                    loadingMessage.remove(); // Remove loading message once data is fetched
+                }
+            }, (error) => {
+                console.error("Error listening to leads collection:", error);
+                leadsTableBody.innerHTML = `<tr><td colspan="4" class="py-4 text-center text-red-500">Error loading data: ${error.message}</td></tr>`;
+            });
+        };
+        
+        // Creates the HTML table row for a single lead
+        const createLeadRow = (lead) => {
+            // Options for the status dropdown, excluding the current status
+            const statusOptions = ['New', 'Contacted', 'Qualified', 'ClosedWon', 'ClosedLost']
+                .map(status => `<option value="${status}" ${lead.status === status ? 'selected' : ''}>${status}</option>`)
+                .join('');
+
+            return `
+                <tr class="hover:bg-blue-50 transition duration-150">
+                    <td class="px-3 py-3 whitespace-nowrap">
+                        <div class="text-sm font-medium text-gray-900">${lead.name}</div>
+                        <div class="text-xs text-gray-500">${lead.email}</div>
+                    </td>
+                    <td class="px-3 py-3 whitespace-nowrap">
+                        <div class="text-sm text-gray-900 font-semibold">${formatCurrency(lead.value)}</div>
+                    </td>
+                    <td class="px-3 py-3 whitespace-nowrap">
+                        <select data-id="${lead.id}" data-current-status="${lead.status}"
+                                class="status-select p-1 text-sm border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 ${getStatusBadge(lead.status)}">
+                            ${statusOptions}
+                        </select>
+                    </td>
+                    <td class="px-3 py-3 whitespace-nowrap text-right text-sm font-medium">
+                        <button onclick="handleDeleteLead('${lead.id}')"
+                                class="delete-btn text-red-600 hover:text-red-900 transition duration-150 p-2 rounded-full hover:bg-red-100">
+                            <svg class="w-5 h-5 inline-block" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                        </button>
+                    </td>
+                </tr>
+            `;
+        };
+        
+        // --- 3. EVENT HANDLERS (CRUD OPERATIONS) ---
+
+        // Handle Add Lead Form Submission
+        document.getElementById('leadForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const submitButton = document.getElementById('submitButton');
+            const messageBox = document.getElementById('messageBox');
+            
+            submitButton.disabled = true;
+            submitButton.textContent = 'Adding...';
+            messageBox.textContent = '';
+
+            const newLead = {
+                name: document.getElementById('leadName').value.trim(),
+                email: document.getElementById('leadEmail').value.trim(),
+                value: parseInt(document.getElementById('leadValue').value, 10),
+                status: document.getElementById('leadStatus').value,
+                createdAt: new Date().toISOString(),
+                ownerId: userId // Track who added the lead
+            };
+
+            try {
+                if (!db) throw new Error("Database not ready.");
+                
+                await addDoc(collection(db, leadsCollectionPath), newLead);
+                messageBox.textContent = 'Lead added successfully!';
+                messageBox.classList.remove('text-red-500');
+                messageBox.classList.add('text-green-600');
+                
+                document.getElementById('leadForm').reset();
+
+            } catch (error) {
+                console.error("Error adding document: ", error);
+                messageBox.textContent = `Error adding lead: ${error.message}`;
+                messageBox.classList.remove('text-green-600');
+                messageBox.classList.add('text-red-500');
+            } finally {
+                submitButton.disabled = false;
+                submitButton.textContent = 'Add Lead';
+                setTimeout(() => messageBox.textContent = '', 3000);
+            }
+        });
+
+        // Handle Status Change (Update)
+        document.getElementById('leadsTableBody').addEventListener('change', async (e) => {
+            if (e.target.classList.contains('status-select')) {
+                const leadId = e.target.dataset.id;
+                const newStatus = e.target.value;
+                const oldStatus = e.target.dataset.currentStatus;
+                
+                if (!db || newStatus === oldStatus) return; // Ignore if status didn't change or DB isn't ready
+
+                try {
+                    const leadRef = doc(db, leadsCollectionPath, leadId);
+                    await updateDoc(leadRef, {
+                        status: newStatus,
+                        updatedAt: new Date().toISOString()
+                    });
+                    // UI update handled by onSnapshot listener
+                } catch (error) {
+                    console.error("Error updating status: ", error);
+                    // Provide visual feedback for error if needed, but for now just console log.
+                }
+            }
+        });
+
+        // Handle Delete Lead
+        window.handleDeleteLead = async (leadId) => {
+            if (!db) {
+                console.error("Database not ready for deletion.");
+                return;
+            }
+            
+            // Simple visual confirmation as we cannot use alert/confirm
+            const confirmation = window.prompt("Type 'DELETE' to confirm removing this lead:");
+
+            if (confirmation === 'DELETE') {
+                try {
+                    const leadRef = doc(db, leadsCollectionPath, leadId);
+                    await deleteDoc(leadRef);
+                    // UI update handled by onSnapshot listener
+                } catch (error) {
+                    console.error("Error deleting document: ", error);
+                    alert(`Failed to delete lead: ${error.message}`); // Using alert as a last resort visual feedback for deletion failure
+                }
+            } else if (confirmation !== null) {
+                console.log("Deletion cancelled.");
+            }
+        };
+
+
+        // Initialize the app on window load
+        window.onload = initializeFirebase;
+
+    </script>
+</body>
+</html>
